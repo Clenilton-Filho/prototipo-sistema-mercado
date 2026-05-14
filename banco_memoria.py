@@ -1,4 +1,7 @@
 from datetime import datetime
+import hashlib
+import os
+import binascii
 
 # Sistema simples em memória para um mercado (uso interno por funcionários)
 # Arquitetura: um único arquivo para facilitar entendimento de iniciantes.
@@ -19,10 +22,77 @@ class BancoMemoria:
         self.lotes = []
         self.entregas = []
         self.entregadores = {}
+        # usuários para autenticação (username -> {salt, pwd})
+        self.usuarios = {}
         self._pid = 1
         self._sid = 1
         self._bid = 1
         self._did = 1
+
+    # ------------------ Autenticação (simples, em memória) ------------------
+    def _hash_password(self, password: str, salt: bytes) -> str:
+                """
+                Gera um hash seguro da senha usando PBKDF2-HMAC-SHA256.
+
+                - geramos um hash (valor fixo) com um "salt" (valor aleatório)
+                    e várias iterações para dificultar ataques de força bruta.
+                - Aqui usamos 100000 iterações e retornamos o hash em hexadecimal.
+
+                Parâmetros:
+                - password: a senha em texto puro fornecida pelo usuário
+                - salt: bytes aleatórios gerados quando o usuário foi criado
+
+                Retorna:
+                - string hexadecimal do hash derivado da senha
+                """
+                dk = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
+                return binascii.hexlify(dk).decode('ascii')
+
+    def adicionar_usuario(self, username: str, password: str):
+        """
+        Cria um novo usuário no banco em memória.
+
+        - Valida que `username` e `password` foram informados.
+        - Gera um `salt` aleatório e calcula o hash da senha com `_hash_password`.
+        - Armazena no dicionário `self.usuarios` uma entrada com o salt (hex)
+          e o hash da senha. Nada é escrito em disco; tudo fica em memória.
+
+        Erros:
+        - Lança `ValueError` se faltar usuário/senha ou se o usuário já existir.
+
+        Retorna:
+        - `True` quando criado com sucesso.
+        """
+        if not username or not password:
+            raise ValueError('Usuário e senha são obrigatórios')
+        if username in self.usuarios:
+            raise ValueError('Usuário já existe')
+        salt = os.urandom(16)
+        pwd_hash = self._hash_password(password, salt)
+        self.usuarios[username] = {'salt': binascii.hexlify(salt).decode('ascii'), 'pwd': pwd_hash}
+        return True
+
+    def autenticar_usuario(self, username: str, password: str) -> bool:
+        """
+        Verifica se o par `username`/`password` é válido.
+
+        - Recupera a entrada do usuário em `self.usuarios`.
+        - Converte o `salt` armazenado (hex) de volta para bytes.
+        - Calcula o hash da senha fornecida com o mesmo salt e compara
+          com o hash armazenado.
+
+        Retorna:
+        - `True` se a senha bate; `False` caso contrário (usuário inexistente
+          ou hash diferente).
+        """
+        u = self.usuarios.get(username)
+        if not u:
+            return False
+        try:
+            salt = binascii.unhexlify(u['salt'])
+        except Exception:
+            return False
+        return self._hash_password(password, salt) == u.get('pwd')
 
     # Produtos
     def adicionar_produto(self, name, code, price, discount_near_expiry=0.0, near_days=7):

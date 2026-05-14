@@ -9,6 +9,7 @@ from views.fornecedores import FornecedoresView
 from views.lotes import LotesView
 from views.entregadores import EntregadoresView
 from views.relatorios import RelatoriosView
+from views.auth import mostrar_auth_overlay
 
 # Para executar: `python main.py` (assume que o pacote `flet` está instalado).
 # Se você nunca viu Flet: a função `main(page)` é o ponto de entrada. O
@@ -59,11 +60,6 @@ def main(page: ft.Page):
 
     main_stack = ft.Stack(expand=True)
     overlay = OverlayManager(page, main_stack)
-
-    # Observação sobre mensagens: durante desenvolvimento usamos `print`
-    # para debug; antes de entregar/remover estes prints, substitua por
-    # logs ou remova para não poluir o console do usuário.
-
     caixa = CaixaView(page, db, overlay, state)
     produtos = ProdutosView(page, db, overlay, caixa.product_dropdown)
     fornecedores = FornecedoresView(page, db, overlay)
@@ -71,7 +67,6 @@ def main(page: ft.Page):
     entregadores = EntregadoresView(page, db, overlay, caixa.dropdown_entregador)
     relatorios = RelatoriosView(page, db, overlay)
 
-    # Wire cross-view dependencies
     caixa.reconstruir_entregadores_callback = entregadores.reconstruir
 
     # --------------------- BARRA SUPERIOR (visível em todas as telas) ---------------------
@@ -125,7 +120,18 @@ def main(page: ft.Page):
     main_stack.controls.append(ft.Column([top_bar, caixa.sale_msg_row, caixa.view], expand=True))
     page.add(main_stack)
 
-    # Inicializar listas
+    # mostrar modal de autenticação ao iniciar (bloqueia acesso até logar)
+    def _on_auth_success():
+        try:
+            overlay.mostrar_mensagem('Bem-vindo', 'Acesso concedido')
+        except Exception:
+            pass
+    try:
+        mostrar_auth_overlay(overlay, db, on_success=_on_auth_success)
+    except Exception:
+        pass
+
+    # Inicializar listas (após criação da UI principal)
     produtos.reconstruir()
     fornecedores.reconstruir()
     lotes.reconstruir()

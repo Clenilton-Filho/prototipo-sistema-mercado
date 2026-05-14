@@ -34,7 +34,19 @@ class OverlayManager:
         except Exception:
             pass
 
-    def mostrar_overlay(self, title, content_control, on_close=None):
+        def mostrar_overlay(self, title, content_control, on_close=None, show_close_button=True, card_width=560):
+                """
+                Exibe um modal (overlay) centralizado sobre a aplicação.
+
+                Parâmetros principais:
+                - title: título do modal
+                - content_control: controle Flet (ft.Control) que será exibido dentro do card
+                - on_close: callback opcional executado quando o modal for fechado
+                - show_close_button: se False, o botão 'Fechar' no card não aparece
+                    (útil para modais que só devem fechar por ação do usuário, ex.: login)
+                - card_width: largura do card branco central (padrão 560), pode ser
+                    reduzido para modais mais compactos
+                """
         # remove overlay anterior se existir
         self.fechar_overlay()
 
@@ -60,9 +72,9 @@ class OverlayManager:
                 ft.Divider(),
                 content_control,
                 ft.Divider(),
-                ft.Row([ft.Button('Fechar', on_click=_on_close)], alignment=ft.MainAxisAlignment.END)
+                (ft.Row([ft.Button('Fechar', on_click=_on_close)], alignment=ft.MainAxisAlignment.END) if show_close_button else ft.Container())
             ], tight=True),
-            width=560,
+            width=card_width,
             padding=20,
             bgcolor=ft.Colors.WHITE,
             border_radius=8
