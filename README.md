@@ -8,7 +8,7 @@ Funcionalidades incluídas
 - Autenticação: modal de login/registro; registro exige a "senha do estabelecimento" (seed criada na primeira execução). Senhas armazenadas com PBKDF2-HMAC-SHA256 + salt para segurança.
 - Caixa: adicionar itens ao carrinho, aplicar descontos automáticos para lotes perto do vencimento, finalizar venda com débito de lotes em ordem de vencimento e registro de entrega.
 - Gestão de Produtos: CRUD de produtos, configuração de desconto para proximidade de vencimento.
-- Gestão de Fornecedores: CRUD de fornecedores e atribuição/edição de preços por produto.
+- Gestão de Fornecedores: CRUD de fornecedores e atribuição/edição de preços por produto, campo para descrição breve e opcional de fornecedores.
 - Gestão de Lotes/Estoque: registro de lotes com quantidade e vencimento; lotes são removidos por ordem de vencimento ao finalizar vendas.
 - Entregadores/Entregas: cadastro de entregadores e registro de entregas pendentes.
 - Relatórios: listas de lotes vencidos e lotes próximos do vencimento.
@@ -47,7 +47,7 @@ pip install -r requirements.txt
 flet run main.py
 ```
 
-Notas e recomendações
+- Notas e recomendações
 - Testes rápidos: ao abrir a aplicação, registre um usuário usando a senha do estabelecimento (seed) ou redefina removendo `data/mercado.db` para regenerar o seed.
 - Verifique a tela `Caixa` ao adicionar produtos e finalizar venda para confirmar débito de lotes e aplicação de descontos.
 

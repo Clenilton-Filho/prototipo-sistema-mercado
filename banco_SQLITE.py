@@ -75,9 +75,19 @@ class BancoMemoria:
         cur.execute('''
             CREATE TABLE IF NOT EXISTS suppliers (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                nome TEXT UNIQUE
+                nome TEXT UNIQUE,
+                descricao TEXT
             )
         ''')
+        # garantir compatibilidade: se a tabela já existia sem a coluna `descricao`, adicioná-la
+        cur.execute("PRAGMA table_info(suppliers)")
+        cols = [r['name'] for r in cur.fetchall()]
+        if 'descricao' not in cols:
+            try:
+                cur.execute('ALTER TABLE suppliers ADD COLUMN descricao TEXT')
+            except Exception:
+                # não fatal: ignorar se não puder alterar (ex: permissões)
+                pass
         cur.execute('''
             CREATE TABLE IF NOT EXISTS supplier_products (
                 supplier_id INTEGER,
@@ -186,8 +196,8 @@ class BancoMemoria:
     def fornecedores(self):
         """Retorna dict de fornecedores com preços por produto."""
         cur = self._conn.cursor()
-        cur.execute('SELECT id, nome FROM suppliers')
-        suppliers = {r['id']: {'id': r['id'], 'nome': r['nome'], 'produtos': {}} for r in cur.fetchall()}
+        cur.execute('SELECT id, nome, descricao FROM suppliers')
+        suppliers = {r['id']: {'id': r['id'], 'nome': r['nome'], 'descricao': r['descricao'] if r['descricao'] is not None else '', 'produtos': {}} for r in cur.fetchall()}
         cur.execute('SELECT supplier_id, product_id, price FROM supplier_products')
         for r in cur.fetchall():
             sid = r['supplier_id']
@@ -261,18 +271,18 @@ class BancoMemoria:
         cur.execute('DELETE FROM batches WHERE produto_id = ?', (product_id,))
         self._conn.commit()
 
-    def adicionar_fornecedor(self, name):
-        """Insere fornecedor; nome deve ser único."""
+    def adicionar_fornecedor(self, name, descricao=''):
+        """Insere fornecedor; nome deve ser único. Aceita `descricao` opcional."""
         cur = self._conn.cursor()
         cur.execute('SELECT id FROM suppliers WHERE lower(nome)=?', (name.lower(),))
         if cur.fetchone():
             raise ValueError('Nome de fornecedor já existe')
-        cur.execute('INSERT INTO suppliers(nome) VALUES(?)', (name,))
+        cur.execute('INSERT INTO suppliers(nome, descricao) VALUES(?,?)', (name, descricao))
         self._conn.commit()
         return cur.lastrowid
 
-    def atualizar_fornecedor(self, supplier_id, name):
-        """Atualiza o nome de um fornecedor existente, garantindo unicidade."""
+    def atualizar_fornecedor(self, supplier_id, name, descricao=''):
+        """Atualiza o nome e descrição de um fornecedor existente, garantindo unicidade."""
         cur = self._conn.cursor()
         cur.execute('SELECT id FROM suppliers WHERE id=?', (supplier_id,))
         if not cur.fetchone():
@@ -280,7 +290,7 @@ class BancoMemoria:
         cur.execute('SELECT id FROM suppliers WHERE lower(nome)=? AND id<>?', (name.lower(), supplier_id))
         if cur.fetchone():
             raise ValueError('Nome de fornecedor já existe')
-        cur.execute('UPDATE suppliers SET nome=? WHERE id=?', (name, supplier_id))
+        cur.execute('UPDATE suppliers SET nome=?, descricao=? WHERE id=?', (name, descricao, supplier_id))
         self._conn.commit()
 
     def remover_fornecedor(self, supplier_id):
