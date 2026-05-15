@@ -28,12 +28,14 @@ class RelatoriosView:
         self.view = ft.Column([
             ft.Text('Relatórios diários'),
             ft.Row([ft.Button('Atualizar relatório', on_click=lambda e: self.reconstruir_relatorios())]),
-            ft.Text('Produtos vencidos:'), self.expired_table,
+            ft.Text('Produtos vencidos:'), ft.Column([self.expired_table], expand=True, scroll=ft.ScrollMode.AUTO),
             ft.Divider(),
-            ft.Text('Produtos perto de vencer (desconto automático):'), self.near_table
+            ft.Text('Produtos perto de vencer (desconto automático):'), ft.Column([self.near_table], expand=True, scroll=ft.ScrollMode.AUTO)
         ], expand=1)
 
     def reconstruir_relatorios(self):
+        # Reconstroi os relatórios de lotes vencidos e próximos ao vencimento.
+        # Esta função é chamada quando o usuário solicita atualização.
         self.expired_table.rows.clear()
         for b in self.db.produtos_vencidos():
             p = self.db.produtos.get(b.get('produto_id'))

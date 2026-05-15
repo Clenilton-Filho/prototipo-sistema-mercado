@@ -12,6 +12,8 @@ class FornecedoresView:
         self.overlay = overlay
         # id do fornecedor atualmente selecionado na tela de fornecedores
         self.selected_supplier_id = None
+        # id do fornecedor em modo de edição (None quando criando)
+        self.id_fornecedor_editando = None
 
         self.lista_fornecedores = ft.ListView(width=300, spacing=5)
         self.campo_nome_fornecedor = ft.TextField(label='Nome fornecedor', width=300)
@@ -38,6 +40,23 @@ class FornecedoresView:
         self.btn_atribuir_ao_fornecedor.on_click = self.atribuir_para_fornecedor_do_meio
         self.btn_atribuir_selecionado.on_click = self.atribuir_para_fornecedor_selecionado
 
+        # sanitização de preços (evitar letras)
+        def sanitize_price(e, field):
+            v = field.value or ''
+            filtered = ''.join(ch for ch in v if (ch.isdigit() or ch == '.'))
+            parts = filtered.split('.')
+            if len(parts) > 1:
+                filtered = parts[0] + '.' + ''.join(parts[1:])
+            if filtered != v:
+                field.value = filtered
+                try:
+                    field.update()
+                except Exception:
+                    pass
+
+        self.campo_preco_fornecedor_novo.on_change = lambda e: sanitize_price(e, self.campo_preco_fornecedor_novo)
+        self.campo_preco_fornecedor_selecionado.on_change = lambda e: sanitize_price(e, self.campo_preco_fornecedor_selecionado)
+
         self.view = ft.Row([
             # esquerda: formulário de cadastro/atribuição (antes estava no meio)
             ft.Column([ft.Text('Adicionar fornecedor'), self.campo_nome_fornecedor, self.btn_adicionar_fornecedor, ft.Divider(), ft.Text('Atribuir produto a fornecedor (selecionar fornecedor)'), self.dropdown_fornecedor_atribuir, self.dropdown_produto_fornecedor_novo, self.campo_preco_fornecedor_novo, self.btn_atribuir_ao_fornecedor], width=420),
@@ -52,9 +71,14 @@ class FornecedoresView:
     def reconstruir_lista_fornecedores(self):
         self.lista_fornecedores.controls.clear()
         for s in self.db.fornecedores.values():
+            # adicionar botões de Ver / Editar / Remover
             self.lista_fornecedores.controls.append(ft.Row([
                 ft.Text(s['nome'], expand=1),
-                ft.TextButton('Ver', on_click=lambda e, sid=s['id']: self.selecionar_fornecedor(sid))
+                ft.Row([
+                    ft.TextButton('Ver', on_click=lambda e, sid=s['id']: self.selecionar_fornecedor(sid)),
+                    ft.IconButton(ft.icons.Icons.EDIT, tooltip='Editar', on_click=lambda e, sid=s['id']: self.start_edit_fornecedor(sid)),
+                    ft.IconButton(ft.icons.Icons.DELETE, tooltip='Remover', on_click=lambda e, sid=s['id']: self.remover_fornecedor_ui(sid))
+                ])
             ]))
         # atualizar dropdowns de seleção
         self.dropdown_fornecedor_atribuir.options = [ft.dropdown.Option(s['nome']) for s in self.db.fornecedores.values()]
@@ -83,8 +107,43 @@ class FornecedoresView:
                 ft.DataCell(ft.Text(p['nome'] if p else '')),
                 ft.DataCell(ft.Text(formatar_moeda(price)))
             ]))
-        self.detalhes_fornecedor.controls.append(self.tabela_produtos_fornecedor)
+        self.detalhes_fornecedor.controls.append(ft.Column([self.tabela_produtos_fornecedor], expand=True, scroll=ft.ScrollMode.AUTO))
         self.page.update()
+
+    def remover_fornecedor_ui(self, sid):
+        try:
+            # chama o DB para remover e atualiza a UI
+            self.db.remover_fornecedor(sid)
+        except Exception as ex:
+            self.overlay.mostrar_mensagem('Erro', str(ex))
+            return
+        # atualizar lista e, se necessário, limpar detalhes/edição
+        if self.selected_supplier_id == sid:
+            self.selected_supplier_id = None
+            self.detalhes_fornecedor.controls.clear()
+        if self.id_fornecedor_editando == sid:
+            self.id_fornecedor_editando = None
+            self.btn_adicionar_fornecedor.text = 'Adicionar fornecedor'
+            try:
+                self.btn_adicionar_fornecedor.update()
+            except Exception:
+                pass
+        self.reconstruir_lista_fornecedores()
+
+    def start_edit_fornecedor(self, sid):
+        s = self.db.fornecedores.get(sid)
+        if not s:
+            self.overlay.mostrar_mensagem('Erro', 'Fornecedor não encontrado')
+            return
+        self.id_fornecedor_editando = sid
+        self.campo_nome_fornecedor.value = s['nome']
+        self.btn_adicionar_fornecedor.text = 'Salvar alterações'
+        try:
+            self.campo_nome_fornecedor.update()
+            self.btn_adicionar_fornecedor.update()
+            self.page.update()
+        except Exception:
+            pass
 
     def atribuir_para_fornecedor_do_meio(self, e):
         sup_name = self.dropdown_fornecedor_atribuir.value
@@ -123,7 +182,22 @@ class FornecedoresView:
 
     def adicionar_fornecedor(self, e):
         try:
-            sid = self.db.adicionar_fornecedor(self.campo_nome_fornecedor.value.strip())
+            name = self.campo_nome_fornecedor.value.strip()
+            if not name:
+                self.overlay.mostrar_mensagem('Erro', 'Preencha o nome do fornecedor')
+                return
+            if self.id_fornecedor_editando is None:
+                sid = self.db.adicionar_fornecedor(name)
+            else:
+                # salvar alterações no fornecedor existente
+                self.db.atualizar_fornecedor(self.id_fornecedor_editando, name)
+                sid = self.id_fornecedor_editando
+                self.id_fornecedor_editando = None
+                self.btn_adicionar_fornecedor.text = 'Adicionar fornecedor'
+                try:
+                    self.btn_adicionar_fornecedor.update()
+                except Exception:
+                    pass
             # se preencher produto no formulário de criação, já atribui
             if self.dropdown_produto_fornecedor_novo.value:
                 prod = next((p for p in self.db.produtos.values() if p['nome'] == self.dropdown_produto_fornecedor_novo.value), None)
