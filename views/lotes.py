@@ -14,7 +14,9 @@ class LotesView:
         self.editing_batch_id = None
         # opções iniciais para dropdowns de produto/fornecedor (apenas nomes)
         prod_opts = [ft.dropdown.Option(p['nome']) for p in db.produtos.values()]
-        sup_opts = [ft.dropdown.Option(s['nome']) for s in db.fornecedores.values()]
+        def _sup_label(s):
+            return f"{s['nome']} — {s.get('descricao','')}" if s.get('descricao') else f"{s['nome']}"
+        sup_opts = [ft.dropdown.Option(_sup_label(s)) for s in db.fornecedores.values()]
         self.lote_product_dropdown = ft.Dropdown(options=prod_opts, hint_text='Selecione o produto')
         self.lote_supplier_dropdown = ft.Dropdown(options=sup_opts, hint_text='Fornecedor (opcional)')
         self.lote_qty = ft.TextField(value='1', width=150, hint_text='Quantidade (ex: 10)')
@@ -93,7 +95,9 @@ class LotesView:
         except Exception:
             pass
         try:
-            sup_opts = [ft.dropdown.Option(s['nome']) for s in self.db.fornecedores.values()]
+            def _sup_label(s):
+                return f"{s['nome']} — {s.get('descricao','')}" if s.get('descricao') else f"{s['nome']}"
+            sup_opts = [ft.dropdown.Option(_sup_label(s)) for s in self.db.fornecedores.values()]
             self.lote_supplier_dropdown.options = sup_opts
             self.lote_supplier_dropdown.update()
         except Exception:
@@ -138,7 +142,14 @@ class LotesView:
         sup = None
         if self.lote_supplier_dropdown.value:
             sup_sel = _sel_text(self.lote_supplier_dropdown.value)
-            sup = next((s for s in self.db.fornecedores.values() if (s['nome'] or '').strip() == sup_sel), None)
+            # sup_sel may be 'Nome — Descrição'
+            parts = sup_sel.split(' — ', 1)
+            sup_nome = parts[0].strip()
+            sup_desc = parts[1].strip() if len(parts) > 1 else ''
+            sup = next((s for s in self.db.fornecedores.values() if (s.get('nome') or '').strip() == sup_nome and (s.get('descricao') or '').strip() == sup_desc), None)
+            if sup is None:
+                # fallback: try name-only match
+                sup = next((s for s in self.db.fornecedores.values() if (s.get('nome') or '').strip() == sup_nome), None)
             if sup is None:
                 try:
                     sid = int(sup_sel)
@@ -221,7 +232,11 @@ class LotesView:
         prod = self.db.produtos.get(b.get('produto_id'))
         # selecionar pelos nomes para evitar exibir ids no campo
         self.lote_product_dropdown.value = prod['nome'] if prod else None
-        self.lote_supplier_dropdown.value = self.db.fornecedores[b.get('fornecedor_id')]['nome'] if b.get('fornecedor_id') and b.get('fornecedor_id') in self.db.fornecedores else None
+        if b.get('fornecedor_id') and b.get('fornecedor_id') in self.db.fornecedores:
+            s = self.db.fornecedores[b.get('fornecedor_id')]
+            self.lote_supplier_dropdown.value = f"{s['nome']} — {s.get('descricao','')}" if s.get('descricao') else f"{s['nome']}"
+        else:
+            self.lote_supplier_dropdown.value = None
         self.lote_qty.value = str(b.get('quantidade'))
         try:
                 # preencher day/month/year a partir do vencimento

@@ -72,22 +72,15 @@ class BancoMemoria:
                 dias_perto INTEGER DEFAULT 7
             )
         ''')
+        # Criar tabela `suppliers` com unicidade na combinação (nome, descricao).
         cur.execute('''
             CREATE TABLE IF NOT EXISTS suppliers (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                nome TEXT UNIQUE,
-                descricao TEXT
+                nome TEXT,
+                descricao TEXT,
+                UNIQUE(nome, descricao)
             )
         ''')
-        # garantir compatibilidade: se a tabela já existia sem a coluna `descricao`, adicioná-la
-        cur.execute("PRAGMA table_info(suppliers)")
-        cols = [r['name'] for r in cur.fetchall()]
-        if 'descricao' not in cols:
-            try:
-                cur.execute('ALTER TABLE suppliers ADD COLUMN descricao TEXT')
-            except Exception:
-                # não fatal: ignorar se não puder alterar (ex: permissões)
-                pass
         cur.execute('''
             CREATE TABLE IF NOT EXISTS supplier_products (
                 supplier_id INTEGER,
@@ -272,14 +265,20 @@ class BancoMemoria:
         self._conn.commit()
 
     def adicionar_fornecedor(self, name, descricao=''):
-        """Insere fornecedor; nome deve ser único. Aceita `descricao` opcional."""
+        """Insere fornecedor; permite mesmo `nome` se `descricao` for diferente.
+
+        Valida unicidade na combinação (lower(nome), descricao).
+        """
         cur = self._conn.cursor()
-        cur.execute('SELECT id FROM suppliers WHERE lower(nome)=?', (name.lower(),))
+        cur.execute('SELECT id FROM suppliers WHERE lower(nome)=? AND (descricao = ? OR (descricao IS NULL AND ? IS NULL))', (name.lower(), descricao, descricao))
         if cur.fetchone():
-            raise ValueError('Nome de fornecedor já existe')
-        cur.execute('INSERT INTO suppliers(nome, descricao) VALUES(?,?)', (name, descricao))
-        self._conn.commit()
-        return cur.lastrowid
+            raise ValueError('Fornecedor com mesmo nome e descrição já existe')
+        try:
+            cur.execute('INSERT INTO suppliers(nome, descricao) VALUES(?,?)', (name, descricao))
+            self._conn.commit()
+            return cur.lastrowid
+        except sqlite3.IntegrityError as e:
+            raise ValueError('Falha ao inserir fornecedor: possível conflito de unicidade') from e
 
     def atualizar_fornecedor(self, supplier_id, name, descricao=''):
         """Atualiza o nome e descrição de um fornecedor existente, garantindo unicidade."""
@@ -287,11 +286,14 @@ class BancoMemoria:
         cur.execute('SELECT id FROM suppliers WHERE id=?', (supplier_id,))
         if not cur.fetchone():
             raise ValueError('Fornecedor não encontrado')
-        cur.execute('SELECT id FROM suppliers WHERE lower(nome)=? AND id<>?', (name.lower(), supplier_id))
+        cur.execute('SELECT id FROM suppliers WHERE lower(nome)=? AND (descricao = ? OR (descricao IS NULL AND ? IS NULL)) AND id<>?', (name.lower(), descricao, descricao, supplier_id))
         if cur.fetchone():
-            raise ValueError('Nome de fornecedor já existe')
-        cur.execute('UPDATE suppliers SET nome=?, descricao=? WHERE id=?', (name, descricao, supplier_id))
-        self._conn.commit()
+            raise ValueError('Fornecedor com mesmo nome e descrição já existe')
+        try:
+            cur.execute('UPDATE suppliers SET nome=?, descricao=? WHERE id=?', (name, descricao, supplier_id))
+            self._conn.commit()
+        except sqlite3.IntegrityError as e:
+            raise ValueError('Falha ao atualizar fornecedor: possível conflito de unicidade') from e
 
     def remover_fornecedor(self, supplier_id):
         """Remove um fornecedor e as referências de preços associadas."""

@@ -21,7 +21,9 @@ class FornecedoresView:
         self.btn_adicionar_fornecedor = ft.Button('Adicionar fornecedor')
 
         # Formulário para atribuir produtos a um fornecedor (na área de "Adicionar fornecedor")
-        self.dropdown_fornecedor_atribuir = ft.Dropdown(label='Fornecedor (atribuir)', width=300, options=[ft.dropdown.Option(s['nome']) for s in db.fornecedores.values()])
+        def _sup_label(s):
+            return f"{s['nome']} — {s.get('descricao','')}" if s.get('descricao') else f"{s['nome']}"
+        self.dropdown_fornecedor_atribuir = ft.Dropdown(label='Fornecedor (atribuir)', width=300, options=[ft.dropdown.Option(_sup_label(s)) for s in db.fornecedores.values()])
         self.dropdown_produto_fornecedor_novo = ft.Dropdown(label='Produto', width=250, options=[ft.dropdown.Option(p['nome']) for p in db.produtos.values()])
         self.campo_preco_fornecedor_novo = ft.TextField(label='Preço do fornecedor', value='0.0', width=150)
         self.btn_atribuir_ao_fornecedor = ft.Button('Atribuir produto ao fornecedor')
@@ -82,7 +84,9 @@ class FornecedoresView:
                 ])
             ]))
         # atualizar dropdowns de seleção
-        self.dropdown_fornecedor_atribuir.options = [ft.dropdown.Option(s['nome']) for s in self.db.fornecedores.values()]
+        def _sup_label(s):
+            return f"{s['nome']} — {s.get('descricao','')}" if s.get('descricao') else f"{s['nome']}"
+        self.dropdown_fornecedor_atribuir.options = [ft.dropdown.Option(_sup_label(s)) for s in self.db.fornecedores.values()]
         self.dropdown_produto_fornecedor_novo.options = [ft.dropdown.Option(p['nome']) for p in self.db.produtos.values()]
         self.dropdown_produto_fornecedor_selecionado.options = [ft.dropdown.Option(p['nome']) for p in self.db.produtos.values()]
         self.page.update()
@@ -156,7 +160,15 @@ class FornecedoresView:
         if not sup_name or not prod_name_local:
             self.overlay.mostrar_mensagem('Erro', 'Selecione fornecedor e produto')
             return
-        sid = next((i for i, sv in self.db.fornecedores.items() if sv['nome'] == sup_name), None)
+        # sup_name may be in format "Nome — Descrição"; parse to match supplier
+        sup_sel = (sup_name or '').strip()
+        parts = sup_sel.split(' — ', 1)
+        sup_nome = parts[0].strip()
+        sup_desc = parts[1].strip() if len(parts) > 1 else ''
+        sid = next((i for i, sv in self.db.fornecedores.items() if (sv.get('nome') or '').strip() == sup_nome and (sv.get('descricao') or '').strip() == sup_desc), None)
+        # fallback: match by name only (backwards compatibility)
+        if sid is None:
+            sid = next((i for i, sv in self.db.fornecedores.items() if (sv.get('nome') or '').strip() == sup_nome), None)
         prod = next((p for p in self.db.produtos.values() if p['nome'] == prod_name_local), None)
         if sid is None or prod is None:
             self.overlay.mostrar_mensagem('Erro', 'Fornecedor ou produto inválido')
@@ -220,7 +232,9 @@ class FornecedoresView:
             # selecionar o novo fornecedor no dropdown de atribuição
             if self.db.fornecedores:
                 last_sid = max(self.db.fornecedores.keys())
-                self.dropdown_fornecedor_atribuir.value = self.db.fornecedores[last_sid]['nome']
+                s = self.db.fornecedores[last_sid]
+                label = f"{s['nome']} — {s.get('descricao','')}" if s.get('descricao') else f"{s['nome']}"
+                self.dropdown_fornecedor_atribuir.value = label
                 self.dropdown_fornecedor_atribuir.update()
             self.page.update()
         except Exception as ex:
