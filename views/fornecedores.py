@@ -12,13 +12,18 @@ class FornecedoresView:
         self.overlay = overlay
         # id do fornecedor atualmente selecionado na tela de fornecedores
         self.selected_supplier_id = None
+        # id do fornecedor em modo de edição (None quando criando)
+        self.id_fornecedor_editando = None
 
         self.lista_fornecedores = ft.ListView(width=300, spacing=5)
         self.campo_nome_fornecedor = ft.TextField(label='Nome fornecedor', width=300)
+        self.campo_descricao_fornecedor = ft.TextField(label='Descrição (breve)', width=300)
         self.btn_adicionar_fornecedor = ft.Button('Adicionar fornecedor')
 
         # Formulário para atribuir produtos a um fornecedor (na área de "Adicionar fornecedor")
-        self.dropdown_fornecedor_atribuir = ft.Dropdown(label='Fornecedor (atribuir)', width=300, options=[ft.dropdown.Option(s['nome']) for s in db.fornecedores.values()])
+        def _sup_label(s):
+            return f"{s['nome']} — {s.get('descricao','')}" if s.get('descricao') else f"{s['nome']}"
+        self.dropdown_fornecedor_atribuir = ft.Dropdown(label='Fornecedor (atribuir)', width=300, options=[ft.dropdown.Option(_sup_label(s)) for s in db.fornecedores.values()])
         self.dropdown_produto_fornecedor_novo = ft.Dropdown(label='Produto', width=250, options=[ft.dropdown.Option(p['nome']) for p in db.produtos.values()])
         self.campo_preco_fornecedor_novo = ft.TextField(label='Preço do fornecedor', value='0.0', width=150)
         self.btn_atribuir_ao_fornecedor = ft.Button('Atribuir produto ao fornecedor')
@@ -38,9 +43,26 @@ class FornecedoresView:
         self.btn_atribuir_ao_fornecedor.on_click = self.atribuir_para_fornecedor_do_meio
         self.btn_atribuir_selecionado.on_click = self.atribuir_para_fornecedor_selecionado
 
+        # sanitização de preços (evitar letras)
+        def sanitize_price(e, field):
+            v = field.value or ''
+            filtered = ''.join(ch for ch in v if (ch.isdigit() or ch == '.'))
+            parts = filtered.split('.')
+            if len(parts) > 1:
+                filtered = parts[0] + '.' + ''.join(parts[1:])
+            if filtered != v:
+                field.value = filtered
+                try:
+                    field.update()
+                except Exception:
+                    pass
+
+        self.campo_preco_fornecedor_novo.on_change = lambda e: sanitize_price(e, self.campo_preco_fornecedor_novo)
+        self.campo_preco_fornecedor_selecionado.on_change = lambda e: sanitize_price(e, self.campo_preco_fornecedor_selecionado)
+
         self.view = ft.Row([
             # esquerda: formulário de cadastro/atribuição (antes estava no meio)
-            ft.Column([ft.Text('Adicionar fornecedor'), self.campo_nome_fornecedor, self.btn_adicionar_fornecedor, ft.Divider(), ft.Text('Atribuir produto a fornecedor (selecionar fornecedor)'), self.dropdown_fornecedor_atribuir, self.dropdown_produto_fornecedor_novo, self.campo_preco_fornecedor_novo, self.btn_atribuir_ao_fornecedor], width=420),
+            ft.Column([ft.Text('Adicionar fornecedor'), self.campo_nome_fornecedor, self.campo_descricao_fornecedor, self.btn_adicionar_fornecedor, ft.Divider(), ft.Text('Atribuir produto a fornecedor (selecionar fornecedor)'), self.dropdown_fornecedor_atribuir, self.dropdown_produto_fornecedor_novo, self.campo_preco_fornecedor_novo, self.btn_atribuir_ao_fornecedor], width=420),
             ft.VerticalDivider(width=20),
             # centro: lista de fornecedores (label atualizado)
             ft.Column([ft.Text('Fornecedores - clique para mais detalhes'), self.lista_fornecedores], width=320),
@@ -52,12 +74,19 @@ class FornecedoresView:
     def reconstruir_lista_fornecedores(self):
         self.lista_fornecedores.controls.clear()
         for s in self.db.fornecedores.values():
+            # adicionar botões de Ver / Editar / Remover
             self.lista_fornecedores.controls.append(ft.Row([
-                ft.Text(s['nome'], expand=1),
-                ft.TextButton('Ver', on_click=lambda e, sid=s['id']: self.selecionar_fornecedor(sid))
+                ft.Column([ft.Text(s['nome']), ft.Text(s.get('descricao',''), size=12, color=ft.Colors.GREY_600)], expand=1),
+                ft.Row([
+                    ft.TextButton('Ver', on_click=lambda e, sid=s['id']: self.selecionar_fornecedor(sid)),
+                    ft.IconButton(ft.icons.Icons.EDIT, tooltip='Editar', on_click=lambda e, sid=s['id']: self.start_edit_fornecedor(sid)),
+                    ft.IconButton(ft.icons.Icons.DELETE, tooltip='Remover', on_click=lambda e, sid=s['id']: self.remover_fornecedor_ui(sid))
+                ])
             ]))
         # atualizar dropdowns de seleção
-        self.dropdown_fornecedor_atribuir.options = [ft.dropdown.Option(s['nome']) for s in self.db.fornecedores.values()]
+        def _sup_label(s):
+            return f"{s['nome']} — {s.get('descricao','')}" if s.get('descricao') else f"{s['nome']}"
+        self.dropdown_fornecedor_atribuir.options = [ft.dropdown.Option(_sup_label(s)) for s in self.db.fornecedores.values()]
         self.dropdown_produto_fornecedor_novo.options = [ft.dropdown.Option(p['nome']) for p in self.db.produtos.values()]
         self.dropdown_produto_fornecedor_selecionado.options = [ft.dropdown.Option(p['nome']) for p in self.db.produtos.values()]
         self.page.update()
@@ -70,6 +99,8 @@ class FornecedoresView:
         s = self.db.fornecedores[sid]
         self.detalhes_fornecedor.controls.clear()
         self.detalhes_fornecedor.controls.append(ft.Text(f"Fornecedor: {s['nome']}"))
+        if s.get('descricao'):
+            self.detalhes_fornecedor.controls.append(ft.Text(f"Descrição: {s.get('descricao')}", color=ft.Colors.GREY_600))
         self.detalhes_fornecedor.controls.append(ft.Divider())
         self.detalhes_fornecedor.controls.append(ft.Text('Atribuir produto a este fornecedor'))
         self.detalhes_fornecedor.controls.append(self.dropdown_produto_fornecedor_selecionado)
@@ -83,8 +114,45 @@ class FornecedoresView:
                 ft.DataCell(ft.Text(p['nome'] if p else '')),
                 ft.DataCell(ft.Text(formatar_moeda(price)))
             ]))
-        self.detalhes_fornecedor.controls.append(self.tabela_produtos_fornecedor)
+        self.detalhes_fornecedor.controls.append(ft.Column([self.tabela_produtos_fornecedor], expand=True, scroll=ft.ScrollMode.AUTO))
         self.page.update()
+
+    def remover_fornecedor_ui(self, sid):
+        try:
+            # chama o DB para remover e atualiza a UI
+            self.db.remover_fornecedor(sid)
+        except Exception as ex:
+            self.overlay.mostrar_mensagem('Erro', str(ex))
+            return
+        # atualizar lista e, se necessário, limpar detalhes/edição
+        if self.selected_supplier_id == sid:
+            self.selected_supplier_id = None
+            self.detalhes_fornecedor.controls.clear()
+        if self.id_fornecedor_editando == sid:
+            self.id_fornecedor_editando = None
+            self.btn_adicionar_fornecedor.text = 'Adicionar fornecedor'
+            try:
+                self.btn_adicionar_fornecedor.update()
+            except Exception:
+                pass
+        self.reconstruir_lista_fornecedores()
+
+    def start_edit_fornecedor(self, sid):
+        s = self.db.fornecedores.get(sid)
+        if not s:
+            self.overlay.mostrar_mensagem('Erro', 'Fornecedor não encontrado')
+            return
+        self.id_fornecedor_editando = sid
+        self.campo_nome_fornecedor.value = s['nome']
+        self.campo_descricao_fornecedor.value = s.get('descricao', '')
+        self.btn_adicionar_fornecedor.text = 'Salvar alterações'
+        try:
+            self.campo_nome_fornecedor.update()
+            self.campo_descricao_fornecedor.update()
+            self.btn_adicionar_fornecedor.update()
+            self.page.update()
+        except Exception:
+            pass
 
     def atribuir_para_fornecedor_do_meio(self, e):
         sup_name = self.dropdown_fornecedor_atribuir.value
@@ -92,7 +160,15 @@ class FornecedoresView:
         if not sup_name or not prod_name_local:
             self.overlay.mostrar_mensagem('Erro', 'Selecione fornecedor e produto')
             return
-        sid = next((i for i, sv in self.db.fornecedores.items() if sv['nome'] == sup_name), None)
+        # sup_name may be in format "Nome — Descrição"; parse to match supplier
+        sup_sel = (sup_name or '').strip()
+        parts = sup_sel.split(' — ', 1)
+        sup_nome = parts[0].strip()
+        sup_desc = parts[1].strip() if len(parts) > 1 else ''
+        sid = next((i for i, sv in self.db.fornecedores.items() if (sv.get('nome') or '').strip() == sup_nome and (sv.get('descricao') or '').strip() == sup_desc), None)
+        # fallback: match by name only (backwards compatibility)
+        if sid is None:
+            sid = next((i for i, sv in self.db.fornecedores.items() if (sv.get('nome') or '').strip() == sup_nome), None)
         prod = next((p for p in self.db.produtos.values() if p['nome'] == prod_name_local), None)
         if sid is None or prod is None:
             self.overlay.mostrar_mensagem('Erro', 'Fornecedor ou produto inválido')
@@ -123,7 +199,23 @@ class FornecedoresView:
 
     def adicionar_fornecedor(self, e):
         try:
-            sid = self.db.adicionar_fornecedor(self.campo_nome_fornecedor.value.strip())
+            name = self.campo_nome_fornecedor.value.strip()
+            descricao = (self.campo_descricao_fornecedor.value or '').strip()
+            if not name:
+                self.overlay.mostrar_mensagem('Erro', 'Preencha o nome do fornecedor')
+                return
+            if self.id_fornecedor_editando is None:
+                sid = self.db.adicionar_fornecedor(name, descricao)
+            else:
+                # salvar alterações no fornecedor existente
+                self.db.atualizar_fornecedor(self.id_fornecedor_editando, name, descricao)
+                sid = self.id_fornecedor_editando
+                self.id_fornecedor_editando = None
+                self.btn_adicionar_fornecedor.text = 'Adicionar fornecedor'
+                try:
+                    self.btn_adicionar_fornecedor.update()
+                except Exception:
+                    pass
             # se preencher produto no formulário de criação, já atribui
             if self.dropdown_produto_fornecedor_novo.value:
                 prod = next((p for p in self.db.produtos.values() if p['nome'] == self.dropdown_produto_fornecedor_novo.value), None)
@@ -133,13 +225,16 @@ class FornecedoresView:
                     except Exception:
                         pass
             self.campo_nome_fornecedor.value = ''
+            self.campo_descricao_fornecedor.value = ''
             self.dropdown_produto_fornecedor_novo.value = None
             self.campo_preco_fornecedor_novo.value = '0.0'
             self.reconstruir_lista_fornecedores()
             # selecionar o novo fornecedor no dropdown de atribuição
             if self.db.fornecedores:
                 last_sid = max(self.db.fornecedores.keys())
-                self.dropdown_fornecedor_atribuir.value = self.db.fornecedores[last_sid]['nome']
+                s = self.db.fornecedores[last_sid]
+                label = f"{s['nome']} — {s.get('descricao','')}" if s.get('descricao') else f"{s['nome']}"
+                self.dropdown_fornecedor_atribuir.value = label
                 self.dropdown_fornecedor_atribuir.update()
             self.page.update()
         except Exception as ex:

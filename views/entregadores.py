@@ -26,7 +26,7 @@ class EntregadoresView:
         self.btn_adicionar_entregador.on_click = self.adicionar_entregador
 
         self.view = ft.Row([
-            ft.Column([ft.Text('Entregadores'), self.tabela_entregadores], expand=1),
+            ft.Column([ft.Text('Entregadores'), ft.Column([self.tabela_entregadores], expand=True, scroll=ft.ScrollMode.AUTO)], expand=1),
             ft.VerticalDivider(width=20),
             ft.Column([ft.Text('Adicionar entregador'), self.campo_nome_entregador, self.btn_adicionar_entregador], width=420)
         ], expand=True)
@@ -99,6 +99,15 @@ class EntregadoresView:
         self.campo_nome_entregador.value = d['nome']
         self.btn_adicionar_entregador.text = 'Salvar alterações'
         try:
+            # garantir que o campo e botão sejam atualizados imediatamente
+            self.campo_nome_entregador.update()
             self.btn_adicionar_entregador.update()
+            try:
+                # atualizar dropdowns que dependem da lista de entregadores
+                self.dropdown_entregador.options = [ft.dropdown.Option(d['nome']) for d in self.db.entregadores.values()]
+                self.dropdown_entregador.update()
+            except Exception:
+                pass
+            self.page.update()
         except Exception:
             pass

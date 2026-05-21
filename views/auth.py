@@ -1,9 +1,6 @@
 import flet as ft
 
 
-ESTABELECIMENTO_PASSWORD = 'mercadoDaPraça@123'
-
-
 def mostrar_auth_overlay(overlay, db, on_success=None):
         
     """
@@ -59,6 +56,9 @@ def mostrar_auth_overlay(overlay, db, on_success=None):
                     pass
 
         btn_login = ft.Button('Entrar', on_click=do_login)
+        # permitir Enter nos campos para submeter o login
+        login_user.on_submit = do_login
+        login_pass.on_submit = do_login
 
         def abrir_registro(e=None):
             show_register()
@@ -115,11 +115,11 @@ def mostrar_auth_overlay(overlay, db, on_success=None):
             p2 = reg_pass2.value or ''
             estab = reg_estab.value or ''
             # checar unicidade primeiro para dar mensagem específica
-            if u in db.usuarios:
+            if db.usuario_existe(u):
                 overlay.mostrar_overlay('Erro', ft.Text('Usuário já existe'), on_close=lambda: show_register(), show_close_button=True)
                 return
             # validações
-            if estab != ESTABELECIMENTO_PASSWORD:
+            if not db.verificar_senha_estabelecimento(estab):
                 overlay.mostrar_overlay('Erro', ft.Text('Senha do estabelecimento inválida'), on_close=lambda: show_register(), show_close_button=True)
                 return
             if len(u) < 4:
@@ -146,6 +146,12 @@ def mostrar_auth_overlay(overlay, db, on_success=None):
 
         btn_reg = ft.Button('Registrar', on_click=do_register)
         btn_cancel = ft.TextButton('Voltar ao login', on_click=lambda e: show_login())
+
+        # permitir Enter no formulário de registro para submeter
+        reg_user.on_submit = do_register
+        reg_pass.on_submit = do_register
+        reg_pass2.on_submit = do_register
+        reg_estab.on_submit = do_register
 
         left_col = ft.Column([ft.Text('Registrar', weight=ft.FontWeight.BOLD), reg_user, reg_pass, reg_pass2, reg_estab, ft.Row([btn_reg, btn_cancel])], tight=True)
         right_col = ft.Column([ft.Text('Requisitos', weight=ft.FontWeight.BOLD), req_user_len, ft.Divider(), req_pass_len, req_pass_digit, req_pass_upper, req_pass_special], tight=True)

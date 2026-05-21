@@ -18,14 +18,19 @@ class CaixaView:
         self.state = state
         self.reconstruir_entregadores_callback = None
 
-        self.product_dropdown = ft.Dropdown(label='Produto', hint_text='Selecione o produto', width=300, options=[ft.dropdown.Option(p['nome']) for p in db.produtos.values()])
-        self.campo_qtd = ft.TextField(value='1', width=100)
+        self.product_dropdown = ft.Dropdown(label='Produto', hint_text='Selecione o produto', width=300)
+        # mapeamento visível_name -> product_id para evitar depender de Option.key
+        self._product_name_to_id = {}
+        self.campo_qtd = ft.TextField(label='Quantidade', value='1', width=100)
+        self.aviso_vencimento = ft.Text('', color=ft.Colors.ORANGE)
         self.btn_adicionar_carrinho = ft.Button('Adicionar ao carrinho')
 
         self.lista_carrinho = ft.ListView(expand=1, spacing=5)
         self.texto_total = ft.Text('Total: R$ 0,00', size=18)
 
         self.btn_adicionar_carrinho.on_click = self.adicionar_ao_carrinho
+        # não exibiremos mais o estoque na UI do caixa; não precisa atualizar info
+        self.product_dropdown.on_change = lambda e: None
 
         # Toggle de entrega
         self.btn_toggle_entrega = ft.Button('Entrega em casa: NÃO', on_click=lambda e: self.alternar_entrega())
@@ -48,6 +53,7 @@ class CaixaView:
 
         self.main_content = ft.Column([
             ft.Row([self.product_dropdown, self.campo_qtd, self.btn_adicionar_carrinho]),
+            self.aviso_vencimento,
             self.lista_carrinho,
             self.sale_msg_row
         ], expand=True)
@@ -60,6 +66,19 @@ class CaixaView:
             self.main_content,
             self.bottom_row
         ], expand=True, alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+
+        # sanitização em tempo real para o campo de quantidade do caixa
+        def _sanitize_digits(e, field):
+            v = field.value or ''
+            filtered = ''.join(ch for ch in v if ch.isdigit())
+            if filtered != v:
+                field.value = filtered
+                try:
+                    field.update()
+                except Exception:
+                    pass
+
+        self.campo_qtd.on_change = lambda e: _sanitize_digits(e, self.campo_qtd)
 
     def reconstruir_lista_carrinho(self):
         # Reconstrói os controles que mostram os itens do carrinho.
@@ -79,6 +98,107 @@ class CaixaView:
         self.texto_total.value = f'Total: {formatar_moeda(total)}'
         self.page.update()
 
+    def atualizar_product_options(self):
+        # atualiza opções do dropdown exibindo apenas produtos com estoque disponível
+        disponivel = self.db.estoque_disponivel()
+        opts = []
+        self._product_name_to_id.clear()
+        for p in self.db.produtos.values():
+            qty = disponivel.get(p['id'], 0)
+            if qty > 0:
+                # exibir apenas nome ao usuário; guardamos id no dicionário
+                name = p['nome']
+                opts.append(ft.dropdown.Option(name))
+                # mapping para lookup rápido
+                self._product_name_to_id[name] = p['id']
+        self.product_dropdown.options = opts
+        # limpar seleção atual
+        self.product_dropdown.value = None
+        try:
+            self.product_dropdown.update()
+        except Exception:
+            pass
+        self.atualizar_info_estoque_produto()
+
+    def atualizar_info_estoque_produto(self):
+        # mostra estoque disponível do produto selecionado
+        sel = self.product_dropdown.value
+        # extrair texto/valor do selection de forma robusta (Option, str, etc.)
+        def _sel_text(s):
+            if s is None:
+                return ''
+            if isinstance(s, str):
+                return s.strip()
+            for attr in ('value', 'text', 'label', 'key'):
+                v = getattr(s, attr, None)
+                if v is not None:
+                    return str(v).strip()
+            return str(s).strip()
+
+        sel = _sel_text(sel)
+        if not sel:
+            self.estoque_info.value = 'Estoque: -'
+            self.aviso_vencimento.value = ''
+        else:
+            # debug: mostrar o valor selecionado e tipo para diagnóstico
+            try:
+                print(f"DEBUG Caixa selection -> sel={sel!r} type={type(self.product_dropdown.value)}")
+            except Exception:
+                pass
+            # tentar resolver via mapeamento por nome (preferido)
+            prod = None
+            pid = self._product_name_to_id.get(sel)
+            if pid is not None:
+                prod = self.db.produtos.get(pid)
+            if prod is None:
+                # tentar interpretar seleção como id (caso venha id string)
+                try:
+                    pid2 = int(sel)
+                    prod = self.db.produtos.get(pid2)
+                except Exception:
+                    pass
+            if prod is None:
+                sel_lower = sel.lower()
+                prod = next((p for p in self.db.produtos.values() if (p['nome'] or '').lower() == sel_lower), None)
+            if not prod:
+                self.estoque_info.value = 'Estoque: -'
+                self.aviso_vencimento.value = ''
+            else:
+                disponivel = self.db.estoque_disponivel()
+                qty = disponivel.get(prod['id'], 0)
+                self.estoque_info.value = f'Estoque: {qty}'
+                # verificar lotes perto de vencer para exibir aviso e informar desconto
+                aviso = ''
+                for b in self.db.lotes:
+                    if b['produto_id'] == prod['id'] and b.get('vencimento'):
+                        days_left = (b['vencimento'] - datetime.today().date()).days
+                        ndays = prod.get('dias_perto', 7)
+                        if 0 <= days_left <= ndays and (b.get('quantidade') or 0) > 0:
+                            desconto = prod.get('desconto_perto_vencimento', 0.0)
+                            aviso = f"Atenção: lote com vencimento em {b.get('vencimento_raw')} (Faltam {days_left} dias). Desconto {desconto}% aplicado."
+                            break
+                self.aviso_vencimento.value = aviso
+        try:
+            self.estoque_info.update()
+        except Exception:
+            pass
+        try:
+            self.aviso_vencimento.update()
+        except Exception:
+            pass
+
+    def reconstruir(self):
+        # chamado ao entrar na tela de caixa para atualizar opções e estado
+        try:
+            self.atualizar_product_options()
+        except Exception:
+            pass
+        try:
+            self.dropdown_entregador.options = [ft.dropdown.Option(d['nome']) for d in self.db.entregadores.values()]
+            self.dropdown_entregador.update()
+        except Exception:
+            pass
+
     def remover_item_carrinho(self, idx):
         self.state['cart'].pop(idx)
         self.reconstruir_lista_carrinho()
@@ -87,19 +207,50 @@ class CaixaView:
         # Evento chamado quando o usuário clica em "Adicionar ao carrinho".
         # Valida seleção e quantidade, aplica desconto automático se houver
         # lote próximo do vencimento e então adiciona o item ao estado.
+        # Nota: o campo `campo_qtd` tem sanitização em tempo real para rejeitar
+        # entradas não numéricas; aqui apenas validamos e ajustamos quando necessário.
         sel = self.product_dropdown.value
+        def _sel_text(s):
+            if s is None:
+                return ''
+            if isinstance(s, str):
+                return s.strip()
+            for attr in ('value', 'text', 'label', 'key'):
+                v = getattr(s, attr, None)
+                if v is not None:
+                    return str(v).strip()
+            return str(s).strip()
+
+        sel = _sel_text(sel)
         if not sel:
             self.overlay.mostrar_mensagem('Erro', 'Selecione um produto')
             return
         # encontrar produto por nome
-        prod = next((p for p in self.db.produtos.values() if p['nome'] == sel), None)
+        # tentar interpretar seleção como id primeiro
+        prod = None
+        try:
+            pid = int(sel)
+            prod = self.db.produtos.get(pid)
+        except Exception:
+            pass
+        if prod is None:
+            sel_lower = sel.lower()
+            prod = next((p for p in self.db.produtos.values() if (p['nome'] or '').lower() == sel_lower), None)
         if not prod:
             self.overlay.mostrar_mensagem('Erro', 'Produto não encontrado')
             return
         try:
             q = int(self.campo_qtd.value)
+            if q <= 0:
+                raise ValueError()
         except Exception:
             self.overlay.mostrar_mensagem('Erro', 'Quantidade inválida')
+            # limpar input inválido evitando letras
+            self.campo_qtd.value = '1'
+            try:
+                self.campo_qtd.update()
+            except Exception:
+                pass
             return
         # aplicar desconto automático se próximo do vencimento (busca lotes do produto)
         unit_price = prod['preco']
@@ -111,8 +262,18 @@ class CaixaView:
                     discount = prod.get('desconto_perto_vencimento', 0.0)
                     unit_price = unit_price * (1 - discount / 100.0)
                     break
+        # verificar estoque disponível
+        disponivel = self.db.estoque_disponivel().get(prod['id'], 0)
+        if q > disponivel:
+            self.overlay.mostrar_mensagem('Erro', f'Quantidade solicitada maior que o estoque disponível ({disponivel})')
+            return
         self.state['cart'].append({'produto_id': prod['id'], 'quantidade': q, 'preco_unitario': unit_price, 'nome': prod['nome']})
         self.reconstruir_lista_carrinho()
+        # atualizar opções/estoque exibido
+        try:
+            self.atualizar_product_options()
+        except Exception:
+            pass
 
     def atualizar_info_entregador(self):
         # mostra quantas entregas pendentes o entregador selecionado tem
@@ -180,12 +341,18 @@ class CaixaView:
             for it in self.state['cart']:
                 qty_left = it['quantidade']
                 # ordenar lotes por data de vencimento crescente
-                batches = sorted([b for b in self.db.lotes if b['produto_id'] == it['produto_id'] and b['quantidade'] > 0], key=lambda x: x.get('vencimento') or datetime.max.date())
+                batches = sorted([b for b in self.db.lotes if b['produto_id'] == it['produto_id'] and b['quantidade'] > 0 and (b.get('vencimento') is None or b.get('vencimento') >= datetime.today().date())], key=lambda x: x.get('vencimento') or datetime.max.date())
                 for b in batches:
                     if qty_left <= 0:
                         break
                     take = min(b['quantidade'], qty_left)
-                    b['quantidade'] -= take
+                    new_qty = b['quantidade'] - take
+                    # persistir a nova quantidade no DB
+                    try:
+                        self.db.atualizar_lote(b['id'], b['produto_id'], b.get('fornecedor_id'), new_qty, b.get('vencimento_raw'))
+                    except Exception:
+                        # se falhar, continuar tentando com demais lotes
+                        pass
                     qty_left -= take
 
             # registrar entrega se for solicitado
@@ -263,6 +430,10 @@ class CaixaView:
             pass
         self.sale_msg_row.visible = False
         self.sale_msg_row.update()
+        try:
+            self.atualizar_product_options()
+        except Exception:
+            pass
 
     def cancelar_venda(self):
         # limpa estado da venda e mostra confirmação
